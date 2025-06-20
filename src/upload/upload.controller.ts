@@ -1,65 +1,54 @@
 import {
-  BadRequestException,
+  Body,
   Controller,
   HttpCode,
   HttpStatus,
-  Inject,
+  ParseFilePipeBuilder,
   Post,
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { FileStorageInterface } from '../interfaces/file-storage.interface';
+import {
+  FileStorageFactory,
+  StorageType,
+} from '../factories/file-storage.factory';
 
 @Controller('upload')
 export class UploadController {
-  constructor(
-    @Inject('FILE_STORAGE') private readonly fileStorage: FileStorageInterface,
-  ) {}
+  constructor(private readonly fileStorageFactory: FileStorageFactory) {}
 
   @Post('video')
   @HttpCode(HttpStatus.NO_CONTENT)
-  @UseInterceptors(FileInterceptor('video'))
-  async uploadVideo(@UploadedFile() file: any) {
-    if (!file) {
-      throw new BadRequestException('Nenhum arquivo foi enviado');
-    }
+  @UseInterceptors(FileInterceptor('file'))
+  async uploadVideo(
+    @UploadedFile(
+      new ParseFilePipeBuilder()
+        .addFileTypeValidator({
+          fileType: /(mp4|avi|mov|wmv|flv|webm|mkv)$/,
+        })
+        .addMaxSizeValidator({
+          maxSize: 10 * 1024 * 1024, // 10MB
+        })
+        .build({
+          errorHttpStatusCode: HttpStatus.BAD_REQUEST,
+        }),
+    )
+    file: Express.Multer.File,
+    @Body('storageType') storageType?: string,
+  ) {
+    const storage = (storageType as StorageType) || StorageType.LOCAL;
+    const fileStorage = this.fileStorageFactory.create(storage);
 
-    // Validar tipo de arquivo (vídeo)
-    const videoMimeTypes = [
-      'video/mp4',
-      'video/avi',
-      'video/mov',
-      'video/wmv',
-      'video/flv',
-      'video/webm',
-      'video/mkv',
-    ];
-
-    if (!file.mimetype || !videoMimeTypes.includes(file.mimetype)) {
-      throw new BadRequestException('Arquivo deve ser um vídeo válido');
-    }
-
-    // Validar tamanho máximo (10MB)
-    const maxSize = 10 * 1024 * 1024; // 10MB em bytes
-    if (!file.size || file.size > maxSize) {
-      throw new BadRequestException('Arquivo deve ter no máximo 10MB');
-    }
-
-    // Gerar nome único para o arquivo
     const timestamp = Date.now();
     const fileName = `${timestamp}-${file.originalname || 'video'}`;
 
-    // Salvar arquivo usando o serviço de armazenamento
-    if (file.buffer) {
-      await this.fileStorage.saveFile(fileName, file.buffer);
-    } else {
-      throw new BadRequestException('Erro ao processar o arquivo');
-    }
+    await fileStorage.saveFile(fileName, file.buffer);
 
-    console.log(`Video uploaded successfully: ${fileName}`);
+    console.log(
+      `Video uploaded successfully: ${fileName} using ${storage} storage`,
+    );
 
-    // Retorna 204 (No Content) em caso de sucesso
     return;
   }
 }

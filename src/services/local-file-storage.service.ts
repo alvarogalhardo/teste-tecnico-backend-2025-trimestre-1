@@ -8,7 +8,6 @@ export class LocalFileStorageService implements FileStorageInterface {
   private readonly uploadsDir = path.join(process.cwd(), 'uploads');
 
   constructor() {
-    // Criar diretório de uploads se não existir
     if (!fs.existsSync(this.uploadsDir)) {
       fs.mkdirSync(this.uploadsDir, { recursive: true });
     }
@@ -37,7 +36,7 @@ export class LocalFileStorageService implements FileStorageInterface {
   async deleteFile(filename: string): Promise<void> {
     const filePath = path.join(this.uploadsDir, filename);
 
-    if (await this.fileExists(filename)) {
+    if (this.fileExists(filename)) {
       await fs.promises.unlink(filePath);
     }
   }

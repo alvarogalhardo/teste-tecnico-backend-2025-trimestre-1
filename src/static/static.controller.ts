@@ -10,13 +10,16 @@ import {
 } from '@nestjs/common';
 import { Response } from 'express';
 import * as path from 'path';
+import {
+  FileStorageFactory,
+  StorageType,
+} from '../factories/file-storage.factory';
 import { CacheInterface } from '../interfaces/cache.interface';
-import { FileStorageInterface } from '../interfaces/file-storage.interface';
 
 @Controller('static')
 export class StaticController {
   constructor(
-    @Inject('FILE_STORAGE') private readonly fileStorage: FileStorageInterface,
+    private readonly fileStorageFactory: FileStorageFactory,
     @Inject('CACHE_SERVICE') private readonly cache: CacheInterface,
   ) {}
 
@@ -26,30 +29,26 @@ export class StaticController {
     @Headers('range') range: string,
     @Res() res: Response,
   ) {
-    // Verificar se o arquivo existe
-    if (!(await this.fileStorage.fileExists(filename))) {
+    const fileStorage = this.fileStorageFactory.create(StorageType.LOCAL);
+
+    if (!fileStorage.fileExists(filename)) {
       throw new NotFoundException('Arquivo não encontrado');
     }
 
-    // Tentar obter do cache primeiro
     let fileBuffer = await this.cache.get(filename);
 
     if (!fileBuffer) {
-      // Se não está em cache, ler do sistema de arquivos
-      fileBuffer = await this.fileStorage.getFile(filename);
+      fileBuffer = await fileStorage.getFile(filename);
 
       if (!fileBuffer) {
         throw new NotFoundException('Arquivo não encontrado');
       }
 
-      // Adicionar ao cache com TTL de 60s
       await this.cache.set(filename, fileBuffer, 60);
     }
 
-    const fileSize = fileBuffer.length;
     const mimeType = this.getMimeType(filename);
 
-    // Definir headers básicos
     res.set({
       'Content-Type': mimeType,
       'Accept-Ranges': 'bytes',
@@ -57,33 +56,44 @@ export class StaticController {
     });
 
     if (range) {
-      // Processar Range request para streaming
-      const parts = range.replace(/bytes=/, '').split('-');
-      const start = parseInt(parts[0], 10);
-      const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
-      const chunkSize = end - start + 1;
-
-      if (start >= fileSize || end >= fileSize) {
-        res.status(416).send('Range Not Satisfiable');
-        return;
-      }
-
-      res.status(HttpStatus.PARTIAL_CONTENT);
-      res.set({
-        'Content-Range': `bytes ${start}-${end}/${fileSize}`,
-        'Content-Length': chunkSize.toString(),
-      });
-
-      const chunk = fileBuffer.slice(start, end + 1);
-      res.send(chunk);
+      this.handleRangeRequest(range, fileBuffer, res);
     } else {
-      // Retornar arquivo completo
-      res.status(HttpStatus.OK);
-      res.set({
-        'Content-Length': fileSize.toString(),
-      });
-      res.send(fileBuffer);
+      this.handleFullFileRequest(fileBuffer, res);
     }
+  }
+
+  private handleRangeRequest(
+    range: string,
+    fileBuffer: Buffer,
+    res: Response,
+  ): void {
+    const fileSize = fileBuffer.length;
+    const parts = range.replace(/bytes=/, '').split('-');
+    const start = parseInt(parts[0], 10);
+    const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+    const chunkSize = end - start + 1;
+
+    if (start >= fileSize || end >= fileSize) {
+      res.status(416).send('Range Not Satisfiable');
+      return;
+    }
+
+    res.status(HttpStatus.PARTIAL_CONTENT);
+    res.set({
+      'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+      'Content-Length': chunkSize.toString(),
+    });
+
+    const chunk = fileBuffer.slice(start, end + 1);
+    res.send(chunk);
+  }
+
+  private handleFullFileRequest(fileBuffer: Buffer, res: Response): void {
+    res.status(HttpStatus.OK);
+    res.set({
+      'Content-Length': fileBuffer.length.toString(),
+    });
+    res.send(fileBuffer);
   }
 
   private getMimeType(filename: string): string {

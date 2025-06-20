@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { FileStorageFactory } from '../factories/file-storage.factory';
 import { LocalFileStorageService } from '../services/local-file-storage.service';
 import { MemoryCacheService } from '../services/memory-cache.service';
 import { StaticController } from './static.controller';
@@ -6,10 +7,8 @@ import { StaticController } from './static.controller';
 @Module({
   controllers: [StaticController],
   providers: [
-    {
-      provide: 'FILE_STORAGE',
-      useClass: LocalFileStorageService,
-    },
+    LocalFileStorageService,
+    FileStorageFactory,
     {
       provide: 'CACHE_SERVICE',
       useClass: MemoryCacheService,
