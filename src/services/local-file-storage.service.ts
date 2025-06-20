@@ -22,7 +22,7 @@ export class LocalFileStorageService implements FileStorageInterface {
   async getFile(filename: string): Promise<Buffer | null> {
     const filePath = path.join(this.uploadsDir, filename);
 
-    if (!(this.fileExists(filename))) {
+    if (!this.fileExists(filename)) {
       return null;
     }
 
