@@ -36,7 +36,7 @@ export class UploadController {
     )
     file: Express.Multer.File,
     @Body('storageType') storageType?: string,
-  ) {
+  ): Promise<void> {
     const storage = (storageType as StorageType) || StorageType.LOCAL;
     const fileStorage = this.fileStorageFactory.create(storage);
 
@@ -48,7 +48,6 @@ export class UploadController {
     console.log(
       `Video uploaded successfully: ${fileName} using ${storage} storage`,
     );
-
     return;
   }
 }
