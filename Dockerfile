@@ -15,6 +15,10 @@ COPY dist/ ./dist/
 # Criar diretório para uploads
 RUN mkdir -p /app/uploads
 
+# Definir variáveis de ambiente
+ENV NODE_ENV=production
+ENV REDIS_URL=redis://redis:6379
+
 # Expor porta da aplicação
 EXPOSE 3000
 

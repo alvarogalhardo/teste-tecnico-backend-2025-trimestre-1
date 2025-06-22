@@ -1,3 +1,4 @@
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import {
   Controller,
   Get,
@@ -8,19 +9,19 @@ import {
   Param,
   Res,
 } from '@nestjs/common';
+import { Cache } from 'cache-manager';
 import { Response } from 'express';
 import * as path from 'path';
 import {
   FileStorageFactory,
   StorageType,
 } from '../factories/file-storage.factory';
-import { CacheInterface } from '../interfaces/cache.interface';
 
 @Controller('static')
 export class StaticController {
   constructor(
     private readonly fileStorageFactory: FileStorageFactory,
-    @Inject('CACHE_SERVICE') private readonly cache: CacheInterface,
+    @Inject(CACHE_MANAGER) private readonly cacheManager: Cache,
   ) {}
 
   @Get('video/:filename')
@@ -31,28 +32,32 @@ export class StaticController {
   ) {
     const fileStorage = this.fileStorageFactory.create(StorageType.LOCAL);
 
-    if (!fileStorage.fileExists(filename)) {
-      throw new NotFoundException('Arquivo não encontrado');
-    }
-
-    let fileBuffer = await this.cache.get(filename);
+    let fileBuffer = await this.cacheManager.get<Buffer>(filename);
 
     if (!fileBuffer) {
-      fileBuffer = await fileStorage.getFile(filename);
-
-      if (!fileBuffer) {
+      if (!fileStorage.fileExists(filename)) {
         throw new NotFoundException('Arquivo não encontrado');
       }
 
-      await this.cache.set(filename, fileBuffer, 60);
+      const file = await fileStorage.getFile(filename);
+
+      if (!file) {
+        throw new NotFoundException('Arquivo não encontrado');
+      }
+
+      fileBuffer = file;
+
+      await this.cacheManager.set(filename, fileBuffer, 60000);
     }
 
     const mimeType = this.getMimeType(filename);
+    const fileSize = fileBuffer.length;
 
     res.set({
       'Content-Type': mimeType,
       'Accept-Ranges': 'bytes',
       'Cache-Control': 'public, max-age=60',
+      'Content-Length': fileSize.toString(),
     });
 
     if (range) {
@@ -68,15 +73,23 @@ export class StaticController {
     res: Response,
   ): void {
     const fileSize = fileBuffer.length;
+
+    // Parse do header Range: "bytes=start-end"
     const parts = range.replace(/bytes=/, '').split('-');
     const start = parseInt(parts[0], 10);
     const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
-    const chunkSize = end - start + 1;
 
-    if (start >= fileSize || end >= fileSize) {
-      res.status(416).send('Range Not Satisfiable');
+    if (start >= fileSize || end >= fileSize || start > end) {
+      res.status(416); // Range Not Satisfiable
+      res.set({
+        'Content-Range': `bytes */${fileSize}`,
+      });
+      res.send('Range Not Satisfiable');
       return;
     }
+
+    const chunkSize = end - start + 1;
+    const chunk = fileBuffer.slice(start, end + 1);
 
     res.status(HttpStatus.PARTIAL_CONTENT);
     res.set({
@@ -84,7 +97,6 @@ export class StaticController {
       'Content-Length': chunkSize.toString(),
     });
 
-    const chunk = fileBuffer.slice(start, end + 1);
     res.send(chunk);
   }
 
