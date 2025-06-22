@@ -6,8 +6,8 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - NODE_ENV=production
-      - REDIS_URL=redis://redis:6379
+      - NODE_ENV=production ## Set the environment to production
+      - REDIS_URL=redis://redis:6379 ##Example Redis URL
     volumes:
       - uploads:/app/uploads
     depends_on:
